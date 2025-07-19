@@ -28,10 +28,8 @@ def get_retriever(business_name: str):
     Initializes and caches a retriever for a specific business's ChromaDB collection.
     """
     if business_name in retriever_cache:
-        print(f"Returning cached retriever for '{business_name}'.")
         return retriever_cache[business_name]
 
-    print(f"Initializing retriever for business '{business_name}'...")
     try:
         collection_name = "".join(e for e in business_name if e.isalnum() or e in ['_', '-']).lower()
         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -43,7 +41,6 @@ def get_retriever(business_name: str):
         
         retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={'k': 5})
         retriever_cache[business_name] = retriever
-        print(f"Successfully initialized and cached retriever for '{business_name}'.")
         return retriever
 
     except Exception as e:
@@ -70,10 +67,10 @@ async def handle_vapi_webhook(request: Request, business_name: str):
     event_type = message.get('type')
     
     # --- TEMPORARY DEBUGGING ---
-    print(f"RAW MESSAGE PAYLOAD: {message}")
+    # print(f"RAW MESSAGE PAYLOAD: {message}") # Cleaned up
     # --------------------------
     
-    print(f"\n=== WEBHOOK CALLED FOR: {business_name} | EVENT: {event_type} ===")
+    # print(f"\n=== WEBHOOK CALLED FOR: {business_name} | EVENT: {event_type} ===") # Cleaned up
 
     # (Database logging remains the same)
     try:
@@ -98,23 +95,13 @@ async def handle_vapi_webhook(request: Request, business_name: str):
         # Ensure the conversation is not empty and the last message is from the user
         if conversation and conversation[-1].get('role') == 'user':
             transcribed_text = conversation[-1].get('content')
-            print(f"Received final transcript from user: \"{transcribed_text}\"")
 
             if transcribed_text:
                 # Get the retriever for the specific business
                 retriever = get_retriever(business_name)
                 
-                print("Retrieving documents from vector store...")
                 docs = retriever.invoke(transcribed_text)
                 
-                # --- Documents retrieved ---
-                print("--- Documents retrieved ---")
-                for i, doc in enumerate(docs):
-                    # Clean the content for printing
-                    clean_content = doc.page_content.replace('\n', ' ')
-                    print(f'Doc {i+1}: "{clean_content[:100]}..."')
-                print("--------------------------")
-
                 # Format the documents into a string for the prompt
                 context = "\n\n".join([doc.page_content for doc in docs])
 
