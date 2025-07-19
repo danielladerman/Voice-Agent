@@ -16,7 +16,5 @@ elevenlabs
 python-dotenv
 python-decouple
 
-websockets
-sounddevice
-numpy
-scipy 
+# Vapi Integration
+vapi-python 

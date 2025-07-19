@@ -27,7 +27,7 @@ async def transcribe_audio(audio_bytes: bytes) -> str:
     try:
         # Use an in-memory file-like object
         audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "audio.webm"  # Give it a name with the correct extension
+        audio_file.name = "audio.wav"  # VAD sends WAV format
         
         # Send the audio data to Whisper API for transcription
         transcription = client.audio.transcriptions.create(
