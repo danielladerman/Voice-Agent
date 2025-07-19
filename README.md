@@ -1,6 +1,6 @@
-# AI Voice Agent
+# AI Voice Agent with Dynamic RAG and Conversation Logging
 
-This project is a conversational AI voice agent capable of real-time, spoken conversations. It leverages a Retrieval-Augmented Generation (RAG) pipeline to answer questions based on a custom knowledge base.
+This project is a sophisticated conversational AI voice agent that engages in real-time, spoken conversations. It leverages a dynamic, per-turn Retrieval-Augmented Generation (RAG) pipeline to provide context-aware answers and logs all communication details to a PostgreSQL database.
 
 ## Core Technologies
 
@@ -8,104 +8,167 @@ This project is a conversational AI voice agent capable of real-time, spoken con
 *   **Voice & Conversation:** Vapi AI
 *   **Language Model:** OpenAI (GPT-4o)
 *   **RAG Pipeline:** LangChain
-*   **Vector Store:** FAISS (for local development)
+*   **Vector Store:** ChromaDB (for local knowledge bases)
+*   **Database:** PostgreSQL (for conversation logging)
+*   **Web Scraping:** Selenium & BeautifulSoup
 *   **Orchestration:** Python
 
-## How It Works
+## Architecture
 
-1.  **Real-Time Communication:** The user interacts with the agent through a voice call initiated by Vapi. Vapi handles the real-time transcription of the user's speech and the synthesis of the agent's spoken responses.
-2.  **Webhook Integration:** Vapi sends the user's transcribed speech to our FastAPI backend via a webhook.
-3.  **RAG Processing:** The backend receives the transcript and passes it as a query to a LangChain RAG pipeline.
-4.  **Knowledge Retrieval:** The RAG pipeline's retriever searches a FAISS vector store to find relevant information from the project's knowledge base.
-5.  **Response Generation:** The retrieved context and the original query are passed to an OpenAI language model, which generates a coherent, context-aware answer.
-6.  **Spoken Response:** The generated answer is sent back to Vapi, which synthesizes it into speech and plays it back to the user in real-time.
+The system is designed for real-time context injection and robust logging.
+
+```mermaid
+graph TD
+    subgraph "User Interaction"
+        A[User] -- Speaks --> B(Vapi AI);
+    end
+
+    subgraph "Our Backend Server (FastAPI)"
+        C[Webhook Endpoint] -- Receives Transcript --> D{RAG Logic};
+        D -- Retrieves Context --> E[ChromaDB Vector Store];
+        E -- Provides Knowledge --> D;
+        D -- Sends System Prompt --> C;
+        C -- Sends Response --> B;
+        
+        C -- Logs Events --> F[Database Logic];
+        F -- Writes to --> G[PostgreSQL Database];
+    end
+
+    B -- Sends Transcript --> C;
+    B -- Receives System Prompt --> B;
+    B -- Generates Final Answer --> A;
+```
+
+### How It Works
+
+1.  **Vapi AI:** Manages the live phone call, handling real-time speech-to-text (STT) and text-to-speech (TTS).
+2.  **Webhook:** Vapi sends a notification (a webhook) to our FastAPI server every time the user finishes speaking.
+3.  **Context Retrieval:** Our server receives the user's speech, queries the **ChromaDB vector store** to find relevant documents from the specific business's knowledge base.
+4.  **Dynamic Prompting:** The server injects the retrieved documents into a new system prompt and sends it back to Vapi.
+5.  **Final Answer Generation:** Vapi uses its own powerful LLM (e.g., GPT-4o) to generate a final answer, guided by the context we provided. This makes the agent's response highly relevant.
+6.  **Database Logging:** Throughout the call, our server also receives events (`status-update`, `end-of-call-report`) and logs all details—call metadata, final transcript, etc.—to our **PostgreSQL database**.
 
 ## Setup and Installation
 
-### 1. Prerequisites
+Follow these steps to set up and run the project.
 
-*   Python 3.9+
-*   [Ngrok](https://ngrok.com/download) for exposing the local server.
+### Step 1: Environment and API Keys
 
-### 2. Clone the Repository
+1.  **Clone the Repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd <your-repository-name>
+    ```
 
-```bash
-git clone <your-repository-url>
-cd <your-repository-name>
-```
+2.  **Set Up Virtual Environment:**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
 
-### 3. Set Up Virtual Environment
+3.  **Install Dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-It is highly recommended to use a virtual environment.
+4.  **Create `.env` file:** Create a file named `.env` in the project root. This file will store all your secret keys. **Do not commit this file to Git.**
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
+5.  **Add API Keys and Database Credentials:** Open the `.env` file and add the following keys. You will get the database credentials in the next step.
+    ```env
+    # Vapi API Key
+    VAPI_PUBLIC_KEY="<your-vapi-key>"
 
-### 4. Install Dependencies
+    # OpenAI API Key
+    OPENAI_API_KEY="sk-..."
 
-```bash
-pip install -r requirements.txt
-```
+    # Supabase/PostgreSQL Credentials
+    DB_HOST="<your-db-host>"
+    DB_PORT="5432"
+    DB_NAME="postgres"
+    DB_USER="postgres"
+    DB_PASS="<your-db-password>"
+    ```
 
-### 5. Configure Environment Variables
+### Step 2: Set Up the PostgreSQL Database (Supabase)
 
-Create a `.env` file in the project root and add your API keys:
+We use a PostgreSQL database to store call logs and transcripts. A free Supabase project is the easiest way to get this.
 
-```
-OPENAI_API_KEY="sk-..."
-VAPI_API_KEY="..."
-```
+1.  **Create a Supabase Project:**
+    *   Go to [supabase.com](https://supabase.com) and create a new project.
+    *   Save the **database password** they provide.
 
-You can get your Vapi key from the [Vapi Dashboard](https://vapi.ai/dashboard).
+2.  **Get Connection Info:**
+    *   In your Supabase project, go to **Project Settings** > **Database**.
+    *   Under **"Connection string"**, find the `psql` connection string.
+    *   Copy the `Host`, `Port`, `Database name`, `User`, and `Password` into your `.env` file.
 
-## Running the Agent
+3.  **Create the Database Tables:**
+    *   In the Supabase dashboard, go to the **SQL Editor**.
+    *   Open the `src/database/schema.sql` file from this project, copy its entire contents, paste it into the Supabase SQL Editor, and click **"Run"**. This will create the `calls` and `transcripts` tables.
+    *   Run the following two `ALTER TABLE` commands in the SQL Editor to ensure the columns are the correct size:
+        ```sql
+        ALTER TABLE calls
+        ALTER COLUMN status TYPE VARCHAR(50);
 
-You will need three separate terminal windows.
+        ALTER TABLE transcripts
+        ALTER COLUMN speaker TYPE VARCHAR(20);
+        ```
 
-### Terminal 1: Start the Backend Server
+### Step 3: Train the Agent (Data Ingestion)
 
-This server runs the RAG pipeline and exposes the webhook for Vapi.
+Before the agent can answer questions about a specific business, you must train it on that business's knowledge.
 
-```bash
-python3 src/core_api/main.py
-```
+1.  **Find a Website:** Get the URL of the website you want the agent to learn from.
+2.  **Run the Ingestion Script:** Run the following command in your terminal, replacing the URL and giving the business a unique name.
+    ```bash
+    python3 src/data_ingestion/ingest_data.py <https://example.com> "Example Business Name"
+    ```
+    This script will scrape the website, create vector embeddings, and save them to a new collection in the `chroma_db` directory. The collection name will be a sanitized version of the business name (e.g., `examplebusinessname`).
 
-### Terminal 2: Expose the Server with Ngrok
+### Step 4: Run the Agent
 
-Vapi needs a public URL to communicate with your local server.
+Now you are ready to make a call.
 
-```bash
-ngrok http 8000
-```
-Copy the `https://...ngrok-free.app` URL provided by ngrok.
+1.  **Start the Backend Server:**
+    Open a terminal and run the FastAPI server.
+    ```bash
+    python3 -m uvicorn src.core_api.main:app --reload
+    ```
 
-### Terminal 3: Start the Vapi Call
+2.  **Expose the Server with Ngrok:**
+    Open a *second* terminal and run ngrok.
+    ```bash
+    ngrok http 8000
+    ```
+    Copy the public `https://...ngrok-free.app` URL that ngrok provides.
 
-This script initiates the call with the Vapi service.
+3.  **Configure Vapi Dashboard:**
+    *   Go to your assistant in the [Vapi Dashboard](https://vapi.ai/dashboard).
+    *   Go to the **"Advanced"** tab.
+    *   In the **"Server URL"** field, paste your ngrok URL. **Crucially, you must append the business name and webhook path.** For example:
+        `https://<your-ngrok-url>/examplebusinessname/vapi-webhook`
+    *   Go to the **"Model"** tab and ensure an OpenAI model (like GPT-4o) is selected.
+    *   **Publish** your assistant to save the changes.
 
-```bash
-python3 run_vapi.py
-```
-
-When prompted, paste the ngrok URL you copied from the previous step. A browser window should open, connecting you to the voice agent.
+4.  **Talk to the Agent:**
+    Click the **"Talk to Assistant"** button in the Vapi dashboard to start a conversation. The agent will now use your local server and its knowledge base to answer questions.
 
 ## Project Structure
 ```
 .
-├── faiss_vector_store/ # Local vector store
+├── chroma_db/        # Local ChromaDB vector store
 ├── src/
 │   ├── core_api/
-│   │   └── main.py     # FastAPI server and RAG logic
+│   │   └── main.py     # FastAPI server, webhook logic, and RAG pipeline
 │   ├── data_ingestion/
-│   │   └── scraper.py  # (Future use) Script for ingesting data
-│   └── tts/
-│       └── eleven_labs_tts.py # (Future use) for other TTS providers
-├── .gitignore
-├── Gemini.md
+│   │   ├── ingest_data.py # Script to scrape websites and train the agent
+│   │   └── scraper.py     # (Legacy) Original scraping utility
+│   ├── database/
+│   │   ├── database.py # Functions for interacting with the PostgreSQL DB
+│   │   └── schema.sql  # SQL schema for the database tables
+│   └── ...
+├── .env.example      # Example environment file
 ├── README.md
 ├── requirements.txt
-├── run_vapi.py         # Script to initiate the Vapi call
-└── venv/
+└── run_vapi.py       # (Legacy) Script to initiate calls via API
 ``` 

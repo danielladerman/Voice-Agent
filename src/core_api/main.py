@@ -1,6 +1,7 @@
 import uvicorn
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -14,146 +15,137 @@ from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
 from langchain.schema.runnable import RunnableLambda
 
-# --- Global RAG Chain Cache ---
-rag_chain_cache = {}
+# Import the new database functions
+from src.database import database as db_utils
+
+# --- Global Retriever Cache ---
+retriever_cache = {}
 LLM_MODEL = "gpt-4o"
 PERSIST_DIRECTORY = "chroma_db"
 
-def get_rag_chain(business_name: str):
+def get_retriever(business_name: str):
     """
-    Initializes and caches the RAG chain for a specific business by loading
-    their ChromaDB collection. If the chain is already in the cache, returns it.
+    Initializes and caches a retriever for a specific business's ChromaDB collection.
     """
-    if business_name in rag_chain_cache:
-        print(f"Returning cached RAG chain for '{business_name}'.")
-        return rag_chain_cache[business_name]
+    if business_name in retriever_cache:
+        print(f"Returning cached retriever for '{business_name}'.")
+        return retriever_cache[business_name]
 
-    print(f"Initializing RAG chain for business '{business_name}'...")
+    print(f"Initializing retriever for business '{business_name}'...")
     try:
-        # Sanitize the business name to get the collection name
         collection_name = "".join(e for e in business_name if e.isalnum() or e in ['_', '-']).lower()
-        
         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        
         vector_store = Chroma(
             collection_name=collection_name,
             embedding_function=embeddings,
             persist_directory=PERSIST_DIRECTORY,
         )
         
-        # Check if the collection is empty
-        # Note: This is a simple check. LangChain's Chroma wrapper doesn't expose a direct count.
-        # We try fetching one document. If it fails or returns none, we assume it's empty/missing.
-        try:
-            test_retrieval = vector_store.similarity_search("", k=1)
-            if not test_retrieval:
-                print(f"Warning: No documents found for '{business_name}' in collection '{collection_name}'.")
-                # We can still proceed, but the RAG chain will have no context.
-        except Exception:
-             print(f"Error: Collection '{collection_name}' for business '{business_name}' not found or is empty.")
-             return None
-
-
-        retriever = vector_store.as_retriever(
-            search_type="mmr",
-            search_kwargs={'k': 5}
-        )
-
-        def log_retrieved_documents(docs):
-            print("\n--- Documents retrieved from vector store ---")
-            if not docs:
-                print("!!! No documents were retrieved.")
-            for i, doc in enumerate(docs):
-                clean_doc = doc.page_content[:100].replace('\n', ' ')
-                print(f"Doc {i+1}: \"{clean_doc}...\"")
-            print("--- End of retrieved documents ---\n")
-            return docs
-
-        template = """
-        You are the official AI assistant representing {business_name}. Your role is to act as a knowledgeable and helpful member of the team.
-
-        **Core Instructions:**
-        1.  **Speak in the First Person Plural:** Always use "we," "our," and "us" when talking about {business_name}. For example, instead of saying "{business_name} provides...", you must say "We provide...".
-        2.  **Assert Your Identity:** If asked who you work for, state that you are a proprietary AI assistant developed by {business_name}. Under no circumstances should you mention OpenAI, GPT, or that you are a large language model.
-        3.  **Use the Provided Context:** Base your answers on the information from the company's website, which is provided below in the 'Context' section.
-        4.  **Handle Unknown Questions:** If the user asks something that isn't covered in the context, politely say that you don't have that information. For example: "I don't have the details on that at the moment, but I can tell you about our main services."
-
-        **Context:**
-        {{context}}
-
-        **Question:**
-        {{question}}
-        """
-        prompt = ChatPromptTemplate.from_template(template.format(business_name=business_name))
-        llm = ChatOpenAI(model=LLM_MODEL, temperature=0.7)
-
-        rag_chain = (
-            {
-                "context": retriever | RunnableLambda(log_retrieved_documents), 
-                "question": RunnablePassthrough()
-            }
-            | prompt
-            | llm
-            | StrOutputParser()
-        )
-        
-        # Cache the newly created chain
-        rag_chain_cache[business_name] = rag_chain
-        print(f"Successfully initialized and cached RAG chain for '{business_name}'.")
-        return rag_chain
+        retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={'k': 5})
+        retriever_cache[business_name] = retriever
+        print(f"Successfully initialized and cached retriever for '{business_name}'.")
+        return retriever
 
     except Exception as e:
-        print(f"Error initializing RAG chain for '{business_name}': {e}")
+        print(f"Error initializing retriever for '{business_name}': {e}")
         return None
 
 # --- FastAPI App ---
 app = FastAPI(
     title="AI Voice Agent Backend",
-    description="This server provides responses to a Vapi voice agent for multiple businesses.",
-    version="1.1.0"
+    description="This server provides real-time context to a Vapi voice agent.",
+    version="1.3.0"
 )
 
-# The startup event is no longer needed as we initialize chains on-demand.
-# @app.on_event("startup")
-# async def startup_event(): ...
-
-# --- Vapi Webhook Endpoint ---
-class VapiPayload(BaseModel):
-    message: dict
-
+# --- VAPI Unified Webhook ---
 @app.post("/{business_name}/vapi-webhook")
-async def handle_vapi_webhook(business_name: str, payload: VapiPayload):
+async def handle_vapi_webhook(request: Request, business_name: str):
     """
-    This endpoint is called by Vapi. The `business_name` is extracted from the URL
-    to dynamically load the appropriate RAG chain.
+    This single endpoint handles all VAPI events.
+    - It logs call data to the database.
+    - For user turns, it retrieves context and provides it to Vapi's LLM.
     """
-    print(f"\n=== WEBHOOK CALLED FOR BUSINESS: {business_name} ===")
-    print(f"Payload type: {payload.message.get('type')}")
-    print(f"Transcript type: {payload.message.get('transcriptType')}")
+    payload = await request.json()
+    message = payload.get('message', {})
+    event_type = message.get('type')
     
-    # Try to get the RAG chain for the specified business
-    rag_chain = get_rag_chain(business_name)
+    # --- TEMPORARY DEBUGGING ---
+    print(f"RAW MESSAGE PAYLOAD: {message}")
+    # --------------------------
+    
+    print(f"\n=== WEBHOOK CALLED FOR: {business_name} | EVENT: {event_type} ===")
 
-    if not rag_chain:
-        print(f"Could not initialize RAG chain for '{business_name}'.")
-        return {"answer": f"I'm sorry, the system for {business_name} is not available."}
+    # (Database logging remains the same)
+    try:
+        if event_type == 'status-update':
+            if message.get('status') == 'in-progress':
+                await db_utils.create_call_record(message)
+        elif event_type == 'end-of-call-report':
+            # This event contains the full transcript and final call details.
+            await db_utils.finalize_call_record(message)
+            if message.get('transcript'):
+                await db_utils.save_transcript(message['call']['id'], message['transcript'])
+        elif event_type == 'function-call':
+            if message.get('functionCall', {}).get('name') == 'book_appointment':
+                await db_utils.create_appointment(message['call']['id'], message['functionCall']['parameters'])
+    except Exception as e:
+        print(f"!!! DATABASE LOGGING ERROR: {e}")
 
-    if payload.message['type'] == 'transcript' and payload.message['transcriptType'] == 'final':
-        transcribed_text = payload.message['transcript']
-        print(f"Received transcript: {transcribed_text}")
-        
-        if transcribed_text:
-            print("Invoking RAG chain...")
-            try:
-                answer = rag_chain.invoke(transcribed_text)
-                print(f"Generated answer: {answer}")
-                return {"answer": answer}
-            except Exception as e:
-                print(f"ERROR in RAG chain: {e}")
-                return {"answer": "I'm sorry, I encountered an error processing that request."}
-        
-    print("=== END WEBHOOK ===\n")
-    return {"answer": "I'm sorry, I didn't receive a valid transcript. Please try again."}
+    # --- Context Injection Section ---
+    # We trigger the RAG chain on a 'conversation-update' when the last turn is from the user.
+    if event_type == 'conversation-update':
+        conversation = message.get('conversation', [])
+        # Ensure the conversation is not empty and the last message is from the user
+        if conversation and conversation[-1].get('role') == 'user':
+            transcribed_text = conversation[-1].get('content')
+            print(f"Received final transcript from user: \"{transcribed_text}\"")
+
+            if transcribed_text:
+                # Get the retriever for the specific business
+                retriever = get_retriever(business_name)
+                
+                print("Retrieving documents from vector store...")
+                docs = retriever.invoke(transcribed_text)
+                
+                # --- Documents retrieved ---
+                print("--- Documents retrieved ---")
+                for i, doc in enumerate(docs):
+                    # Clean the content for printing
+                    clean_content = doc.page_content.replace('\n', ' ')
+                    print(f'Doc {i+1}: "{clean_content[:100]}..."')
+                print("--------------------------")
+
+                # Format the documents into a string for the prompt
+                context = "\n\n".join([doc.page_content for doc in docs])
+
+                # Build the new system prompt with the retrieved context
+                system_prompt_template = f"""
+                You are the official AI assistant representing {business_name}. Your role is to act as a knowledgeable and helpful member of the team.
+                Your primary goal is to answer questions accurately based on the provided context.
+
+                **Core Instructions:**
+                1.  **Speak in the First Person Plural:** Use "we," "our," and "us" when talking about {business_name}.
+                2.  **Assert Your Identity:** If asked, state you are a proprietary AI assistant for {business_name}. Do not mention OpenAI or GPT.
+                3.  **Use the Provided Context Exclusively:** Base your answers ONLY on the information from the 'Context' section below.
+                4.  **Handle Unknown Questions:** If the user asks something not covered in the context, politely say you don't have that information.
+
+                **Context:**
+                {context}
+                """
+                
+                # We are overriding the model configuration for this turn
+                return JSONResponse(content={
+                    "model": {
+                        "provider": "openai",
+                        "model": "gpt-4o",
+                        "messages": [
+                            {"role": "system", "content": system_prompt_template}
+                        ] + conversation
+                    }
+                })
+
+    return JSONResponse(content={"status": "success"})
+
 
 # --- Main Entry Point ---
 if __name__ == "__main__":

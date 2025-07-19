@@ -23,4 +23,11 @@ vapi-python
 chromadb
 
 # LangSmith Observability
-langsmith 
+langsmith
+
+# Database for Communication Logging
+asyncpg
+psycopg2-binary
+
+# Browser Automation for Scraping
+selenium 

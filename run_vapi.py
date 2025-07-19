@@ -14,24 +14,25 @@ if not VAPI_API_KEY:
     raise ValueError("VAPI_PUBLIC_KEY is not set in the .env file. Please check your .env file.")
 
 # --- Main Vapi Runner ---
-async def main(ngrok_url: str):  # Accept ngrok_url as an argument
+async def main(ngrok_url: str, business_name: str):  # Accept business_name
     """
     This script starts a new Vapi call with a custom assistant that is
     configured to use our local RAG server for its responses.
     """
     print(f"Using ngrok URL: {ngrok_url}")
+    print(f"For business: {business_name}")
 
     # Initialize the Vapi client
     vapi = Vapi(api_key=VAPI_API_KEY)
 
-    # Define the assistant that will use our local RAG server
+    # By setting the model to None, we force Vapi to rely exclusively on the
+    # responses provided by our server webhook. This prevents Vapi from
+    # "freeballing" with its own generic LLM.
     assistant_config = {
-        "model": {
-            "provider": "openai",
-            "model": "gpt-4o",  # Using gpt-4o as specified in the backend
-        },
+        "model": None,
         "server": {
-            "url": f"{ngrok_url}/vapi-webhook"
+            # Construct the correct URL with the business name
+            "url": f"{ngrok_url}/{business_name}/vapi-webhook"
         },
         "voice": {
             "provider": "playht",
@@ -63,8 +64,9 @@ if __name__ == "__main__":
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Run the Vapi voice agent.")
     parser.add_argument("ngrok_url", type=str, help="The ngrok forwarding URL for the backend server.")
+    parser.add_argument("business_name", type=str, help="The name of the business to connect to (used in the webhook URL).")
     
     args = parser.parse_args()
     
-    # Run the main async function with the provided URL
-    asyncio.run(main(args.ngrok_url)) 
+    # Run the main async function with the provided URL and business name
+    asyncio.run(main(args.ngrok_url, args.business_name)) 
