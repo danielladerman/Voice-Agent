@@ -1,36 +1,34 @@
 import os
 import asyncio
+import argparse  # Import argparse
 from vapi_python import Vapi
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Get the Vapi Public Key from the environment variables
-VAPI_PUBLIC_KEY = os.getenv("VAPI_PUBLIC_KEY")
-if not VAPI_PUBLIC_KEY:
-    raise ValueError("VAPI_PUBLIC_KEY is not set in the .env file")
+# Get the Vapi API Key from the environment variables
+# The user's .env file uses VAPI_PUBLIC_KEY, so we will use that.
+VAPI_API_KEY = os.getenv("VAPI_PUBLIC_KEY")
+if not VAPI_API_KEY:
+    raise ValueError("VAPI_PUBLIC_KEY is not set in the .env file. Please check your .env file.")
 
 # --- Main Vapi Runner ---
-async def main():
+async def main(ngrok_url: str):  # Accept ngrok_url as an argument
     """
     This script starts a new Vapi call with a custom assistant that is
     configured to use our local RAG server for its responses.
     """
-    # Prompt the user for the ngrok URL
-    ngrok_url = input("Please enter your ngrok forwarding URL (e.g., https://xxxxx.ngrok.io): ")
-    if not ngrok_url:
-        print("ngrok URL is required.")
-        return
+    print(f"Using ngrok URL: {ngrok_url}")
 
     # Initialize the Vapi client
-    vapi = Vapi(api_key=VAPI_PUBLIC_KEY)
+    vapi = Vapi(api_key=VAPI_API_KEY)
 
     # Define the assistant that will use our local RAG server
     assistant_config = {
         "model": {
             "provider": "openai",
-            "model": "gpt-3.5-turbo",
+            "model": "gpt-4o",  # Using gpt-4o as specified in the backend
         },
         "server": {
             "url": f"{ngrok_url}/vapi-webhook"
@@ -46,8 +44,8 @@ async def main():
         print("Starting Vapi call...")
         # Start the call. Vapi will provide a web link to join the conversation.
         vapi.start(assistant=assistant_config)
-        print("\nCall started successfully. Check the Vapi output for a link to join the call.")
-        print("Press Ctrl+C to stop the call.")
+        print("\nCall started successfully. A browser window should open to join the call.")
+        print("Press Ctrl+C to stop the script.")
         
         # Keep the script running until the user stops it
         while True:
@@ -55,10 +53,18 @@ async def main():
 
     except KeyboardInterrupt:
         print("\nStopping Vapi call...")
-        vapi.stop()
-        print("Call stopped.")
+        # vapi.stop() is not a valid method in the vapi-python library.
+        # The call is managed on the server side and will time out.
+        print("Script stopped. You can close the browser window.")
     except Exception as e:
         print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="Run the Vapi voice agent.")
+    parser.add_argument("ngrok_url", type=str, help="The ngrok forwarding URL for the backend server.")
+    
+    args = parser.parse_args()
+    
+    # Run the main async function with the provided URL
+    asyncio.run(main(args.ngrok_url)) 

@@ -17,4 +17,10 @@ python-dotenv
 python-decouple
 
 # Vapi Integration
-vapi-python 
+vapi-python
+
+# ChromaDB Vector Store
+chromadb
+
+# LangSmith Observability
+langsmith 

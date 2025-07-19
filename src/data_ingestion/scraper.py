@@ -18,19 +18,26 @@ def scrape_website(url: str) -> str:
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Remove script and style elements
-        for script_or_style in soup(['script', 'style', 'nav', 'footer', 'header']):
+        # --- A More Intelligent Content Extraction ---
+        # Instead of removing noisy tags, we'll try to find the main content directly.
+        # This is more robust as modern websites use semantic HTML tags.
+        
+        main_content = soup.find('main')
+        if not main_content:
+            main_content = soup.find('article')
+        if not main_content:
+            main_content = soup.find('body') # Fallback to the whole body if no main/article
+
+        # Once we have the main content block, we remove any lingering noisy tags from it.
+        for script_or_style in main_content(['script', 'style', 'nav', 'footer', 'header']):
             script_or_style.decompose()
 
-        # Find all meaningful text blocks and join them
-        tags = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'td', 'span', 'div']
-        text_blocks = [tag.get_text(strip=True) for tag in soup.find_all(tags)]
-        text = ' '.join(text_blocks)
-
-        # Clean up whitespace
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
+        # Get text from the cleaned main content block
+        text = main_content.get_text(separator=' ', strip=True)
+        
+        # --- Clean up whitespace ---
+        # Replace multiple spaces/newlines with a single space for cleaner text.
+        text = ' '.join(text.split())
 
         return text
 
