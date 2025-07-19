@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# Environment
+.env
+
+# FAISS index
+*.faiss
+faiss_vector_store/
+
+# Test outputs
+test_audio.mp3
+test_audio_stream.mp3 

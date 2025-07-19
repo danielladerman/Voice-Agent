@@ -1,0 +1,22 @@
+# Core API
+fastapi
+uvicorn[standard]
+
+# Web Scraping & Data Handling
+requests
+beautifulsoup4
+
+# Vector Store & RAG
+faiss-cpu
+langchain
+langchain-openai
+elevenlabs
+
+# Utilities
+python-dotenv
+python-decouple
+
+websockets
+sounddevice
+numpy
+scipy 
