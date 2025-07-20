@@ -61,6 +61,12 @@ app = FastAPI(
     version="1.3.0"
 )
 
+@app.get("/")
+async def health_check():
+    """A simple endpoint to confirm the server is running."""
+    return {"status": "ok", "message": "Server is running"}
+
+
 # --- VAPI Unified Webhook ---
 @app.post("/{business_name}/vapi-webhook")
 async def handle_vapi_webhook(request: Request, business_name: str):
