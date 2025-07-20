@@ -18,8 +18,9 @@ RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
 COPY . /app
 
 # Expose the port the app runs on
-EXPOSE 8000
+EXPOSE 10000
 
 # Define the command to run the application
 # Use gunicorn for a production-ready server
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "4", "-b", "0.0.0.0:8000", "src.core_api.main:app"] 
+# Bind to the port provided by Render's $PORT environment variable
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "-b", "0.0.0.0:$PORT", "src.core_api.main:app"] 
