@@ -32,3 +32,9 @@ psycopg2-binary
 
 # Browser Automation for Scraping
 selenium 
+
+# Google Calendar Integration
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+itsdangerous 

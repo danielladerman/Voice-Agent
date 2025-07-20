@@ -174,3 +174,79 @@ async def store_recording(call_id: str, audio_url: str):
     # For now, we will just log it.
     print(f"Received request to store recording for call {call_id} from URL: {audio_url}")
     pass
+
+# --- Google Calendar Auth Functions ---
+
+async def save_google_auth(business_name: str, credentials):
+    """Saves or updates the Google OAuth 2.0 credentials for a business."""
+    conn = await get_db_connection()
+    if not conn:
+        print("!!! DB ERROR: Could not get a connection from the pool.")
+        return
+
+    try:
+        # Check if a record for this business already exists
+        existing = await conn.fetchval("SELECT id FROM google_auth WHERE business_name = $1", business_name)
+        
+        if existing:
+            # Update existing credentials
+            await conn.execute("""
+                UPDATE google_auth
+                SET token = $1, refresh_token = $2, token_uri = $3, client_id = $4, client_secret = $5, scopes = $6, updated_at = $7
+                WHERE business_name = $8
+            """,
+                credentials.token,
+                credentials.refresh_token,
+                credentials.token_uri,
+                credentials.client_id,
+                credentials.client_secret,
+                ' '.join(credentials.scopes),
+                datetime.now(timezone.utc),
+                business_name
+            )
+            print(f"--- DB: Updated Google Auth credentials for {business_name}")
+        else:
+            # Insert new credentials
+            await conn.execute("""
+                INSERT INTO google_auth (business_name, token, refresh_token, token_uri, client_id, client_secret, scopes, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            """,
+                business_name,
+                credentials.token,
+                credentials.refresh_token,
+                credentials.token_uri,
+                credentials.client_id,
+                credentials.client_secret,
+                ' '.join(credentials.scopes),
+                datetime.now(timezone.utc),
+                datetime.now(timezone.utc)
+            )
+            print(f"--- DB: Saved new Google Auth credentials for {business_name}")
+
+    except Exception as e:
+        print(f"!!! DB ERROR (save_google_auth): {e}")
+    finally:
+        if conn:
+            await db_pool.release(conn)
+
+async def get_google_auth(business_name: str):
+    """Retrieves the Google OAuth 2.0 credentials for a business."""
+    conn = await get_db_connection()
+    if not conn:
+        print("!!! DB ERROR: Could not get a connection from the pool.")
+        return None
+    
+    try:
+        row = await conn.fetchrow("SELECT * FROM google_auth WHERE business_name = $1", business_name)
+        if row:
+            print(f"--- DB: Retrieved Google Auth credentials for {business_name}")
+            return dict(row)
+        else:
+            print(f"--- DB: No Google Auth credentials found for {business_name}")
+            return None
+    except Exception as e:
+        print(f"!!! DB ERROR (get_google_auth): {e}")
+        return None
+    finally:
+        if conn:
+            await db_pool.release(conn)

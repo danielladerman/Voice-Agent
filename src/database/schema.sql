@@ -46,3 +46,18 @@ CREATE TABLE recordings (
     s3_path VARCHAR(255),
     transcript_id INTEGER REFERENCES transcripts(transcript_id)
 );
+
+-- 5. `google_auth` Table (Stores OAuth credentials for Google Calendar)
+-- This table stores the credentials for each business to access their Google Calendar.
+CREATE TABLE google_auth (
+    id SERIAL PRIMARY KEY,
+    business_name VARCHAR(100) UNIQUE NOT NULL, -- Corresponds to the Pinecone namespace
+    token TEXT, -- Stores the access token
+    refresh_token TEXT, -- Stores the refresh token to get new access tokens
+    token_uri TEXT,
+    client_id TEXT,
+    client_secret TEXT,
+    scopes TEXT, -- Stores scopes as a space-separated string
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);

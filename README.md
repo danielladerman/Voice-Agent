@@ -88,10 +88,35 @@ This project is designed to be deployed as a Dockerized web service on Render.
     *   `DB_NAME`
     *   `DB_USER`
     *   `DB_PASS`
+    *   `SECRET_KEY`: A long, random string used to secure user sessions for the Google Calendar connection.
+    *   `GOOGLE_CLIENT_SECRET_JSON`: The full *path inside the container* to your Google client secret file (e.g., `/app/client_secret.json`). See Step 4.
     *   (Optional) Add your `LANGCHAIN_*` variables for observability.
 5.  Click **"Create Web Service"**. Render will build and deploy your application. The public URL will be shown on your dashboard (e.g., `https://your-app-name.onrender.com`).
 
-### Step 4: Train the Agent (Data Ingestion)
+### Step 4: Set Up Google Calendar Integration
+
+To allow the agent to schedule appointments, you need to configure Google OAuth 2.0.
+
+1.  **Create a Google Cloud Project:**
+    *   Go to the [Google Cloud Console](https://console.cloud.google.com/).
+    *   Create a new project.
+    *   Go to **APIs & Services > Enabled APIs & Services** and click **"+ ENABLE APIS AND SERVICES"**.
+    *   Search for "Google Calendar API" and enable it.
+2.  **Configure the OAuth Consent Screen:**
+    *   Go to **APIs & Services > OAuth consent screen**.
+    *   Choose **External** and create the screen. Fill in the required app details.
+    *   Add the scope: `.../auth/calendar.events` and `.../auth/calendar.readonly`.
+    *   Add your Render URL to the list of **Authorized domains**.
+    *   Add your developers' email addresses as test users.
+3.  **Create OAuth 2.0 Credentials:**
+    *   Go to **APIs & Services > Credentials**.
+    *   Click **"+ CREATE CREDENTIALS" > "OAuth client ID"**.
+    *   Select **Web application**.
+    *   Under **Authorized redirect URIs**, add `https://<your-render-url>/oauth2callback`.
+    *   Click **Create**. A dialog will appear with your client ID and secret. Click **"DOWNLOAD JSON"** and save the file as `client_secret.json` in the root of this project.
+    *   **Crucially, you must also add this file to your `Dockerfile` so it gets included in the container.** See the `Dockerfile` in this project for an example `COPY` command.
+
+### Step 5: Train the Agent (Data Ingestion)
 
 Before the agent can answer questions, you must train it on a business's knowledge. This is done by running the ingestion script locally.
 
@@ -104,7 +129,19 @@ Before the agent can answer questions, you must train it on a business's knowled
     ```
     This script will scrape the website, create vector embeddings, and save them to your cloud Pinecone index.
 
-### Step 5: Connect and Talk to the Agent
+### Step 6: Connect a Business's Google Calendar
+
+Before the agent can schedule appointments for a business, the business owner must grant permission.
+
+1.  Open a web browser and navigate to the following URL, replacing the placeholders:
+    `https://<your-render-url>/connect-google-calendar/<business-name>`
+    *   `<your-render-url>` is your deployed application's URL.
+    *   `<business-name>` is the same unique name you used during data ingestion (this is the Pinecone namespace).
+2.  The browser will be redirected to Google's consent screen. The business owner should log in and grant the requested permissions.
+3.  After granting permission, they will be redirected back to a confirmation page. The agent is now ready to schedule appointments for that business.
+
+
+### Step 7: Connect and Talk to the Agent
 
 1.  **Configure Vapi Dashboard:**
     *   Go to your assistant in the [Vapi Dashboard](https://vapi.ai/dashboard).

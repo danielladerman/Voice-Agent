@@ -17,11 +17,15 @@ COPY ./requirements.txt /app/requirements.txt
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
 
-# Copy the rest of the application's code into the container at /app
-COPY . /app
+# Copy the rest of the application code
+COPY . .
+
+# Copy the Google client secret file into the container
+# IMPORTANT: Make sure you have a `client_secret.json` file in your project root.
+COPY client_secret.json /app/client_secret.json
 
 # Expose the port the app runs on
-EXPOSE 10000
+EXPOSE 8000
 
 # Define the command to run the application
 # Use gunicorn for a production-ready server
