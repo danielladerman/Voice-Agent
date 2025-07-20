@@ -342,6 +342,13 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                 2.  **Assert Your Identity:** If asked, state you are a proprietary AI assistant for {business_name}. Do not mention OpenAI or GPT.
                 3.  **Use the Provided Context Exclusively:** Base your answers ONLY on the information from the 'Context' section below.
                 4.  **Handle Unknown Questions:** If the user asks something not covered in the context, politely say you don't have that information.
+                
+                **Tool Usage Instructions for Scheduling:**
+                - **NEVER** confirm an appointment without using your tools. Do not just say "I will schedule it."
+                - **Step 1: Check Availability.** When a user asks to book an appointment, your first action MUST be to use the `check_calendar_availability` tool for the requested time slot.
+                - **Step 2: Confirm with the User.** After the tool returns the result, inform the user whether the slot is free or busy. If it is free, ask for confirmation before booking.
+                - **Step 3: Schedule the Appointment.** Once the user confirms, you MUST use the `schedule_appointment` tool to create the event in the calendar.
+                - **Step 4: Final Confirmation.** After the `schedule_appointment` tool succeeds, and only then, give the final confirmation to the user (e.g., "Okay, I've confirmed that on our calendar for you.").
 
                 **Context:**
                 {context}
