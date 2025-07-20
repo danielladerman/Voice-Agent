@@ -93,30 +93,22 @@ async def handle_vapi_webhook(request: Request, business_name: str):
     payload = await request.json()
     message = payload.get('message', {})
     event_type = message.get('type')
-    print(f"--- WEBHOOK: Received event type: {event_type}")
 
     # (Database logging remains the same)
     try:
         if event_type == 'status-update':
             if message.get('status') == 'in-progress':
-                print("--- WEBHOOK: Event is 'status-update', calling create_call_record...")
                 await db_utils.create_call_record(message)
-                print("--- WEBHOOK: Finished create_call_record.")
         elif event_type == 'end-of-call-report':
-            print("--- WEBHOOK: Event is 'end-of-call-report', calling finalize_call_record...")
             await db_utils.finalize_call_record(message)
-            print("--- WEBHOOK: Finished finalize_call_record.")
         elif event_type == 'function-call':
             if message.get('functionCall', {}).get('name') == 'book_appointment':
-                print("--- WEBHOOK: Event is 'function-call', calling create_appointment...")
                 await db_utils.create_appointment(message['call']['id'], message['functionCall']['parameters'])
-                print("--- WEBHOOK: Finished create_appointment.")
     except Exception as e:
         print(f"!!! DATABASE LOGGING ERROR: {e}")
 
     # --- Context Injection & Transcript Logging Section ---
     if event_type == 'conversation-update':
-        print("--- WEBHOOK: Event is 'conversation-update', processing...")
         conversation = message.get('conversation', [])
         if not conversation:
             return JSONResponse(content={"status": "no conversation to process"})
@@ -126,19 +118,16 @@ async def handle_vapi_webhook(request: Request, business_name: str):
         call_id = message.get('call', {}).get('id')
         if call_id and latest_turn.get('role') and latest_turn.get('content'):
             try:
-                print(f"--- WEBHOOK: Calling save_transcript_turn for role '{latest_turn['role']}'...")
                 await db_utils.save_transcript_turn(
                     call_id=call_id,
                     speaker=latest_turn['role'],
                     content=latest_turn['content']
                 )
-                print("--- WEBHOOK: Finished save_transcript_turn.")
             except Exception as e:
                 print(f"!!! TRANSCRIPT LOGGING ERROR: {e}")
 
         # Check if the last message is from the user to trigger RAG
         if latest_turn.get('role') == 'user':
-            print("--- WEBHOOK: Role is 'user', preparing RAG context...")
             transcribed_text = latest_turn.get('content')
 
             if transcribed_text:
@@ -166,7 +155,6 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                 """
                 
                 # We are overriding the model configuration for this turn
-                print("--- WEBHOOK: Returning new system prompt to Vapi.")
                 return JSONResponse(content={
                     "model": {
                         "provider": "openai",
