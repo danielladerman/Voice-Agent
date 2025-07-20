@@ -8,6 +8,7 @@ This project is a sophisticated conversational AI voice agent that engages in re
 *   **Voice & Conversation:** Vapi AI
 *   **Language Model:** OpenAI (GPT-4o)
 *   **RAG Pipeline:** LangChain
+*   **AI Observability:** LangSmith (for debugging and tracing)
 *   **Vector Store:** ChromaDB (for local knowledge bases)
 *   **Database:** PostgreSQL (for conversation logging)
 *   **Web Scraping:** Selenium & BeautifulSoup
