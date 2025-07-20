@@ -27,6 +27,9 @@ def to_datetime(ms: int) -> datetime:
 async def get_db_connection():
     """Establishes a connection to the database."""
     try:
+        # --- TEMPORARY DEBUGGING ---
+        print(f"--- DB: Attempting to connect to host: '{DB_HOST}' on port: '{DB_PORT}'")
+        # --------------------------
         conn = await asyncpg.connect(DATABASE_URL)
         return conn
     except Exception as e:
