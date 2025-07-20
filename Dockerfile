@@ -23,4 +23,4 @@ EXPOSE 10000
 # Define the command to run the application
 # Use gunicorn for a production-ready server
 # Bind to the port provided by Render's $PORT environment variable
-CMD gunicorn -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:$PORT src.core_api.main:app 
+CMD ["/bin/sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:$PORT src.core_api.main:app"] 
