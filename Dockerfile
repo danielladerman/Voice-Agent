@@ -20,14 +20,9 @@ RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
 # Copy the rest of the application code
 COPY . .
 
-# Copy the Google client secret file into the container
-# IMPORTANT: Make sure you have a `client_secret.json` file in your project root.
-COPY client_secret.json /app/client_secret.json
-
 # Expose the port the app runs on
 EXPOSE 8000
 
 # Define the command to run the application
-# Use gunicorn for a production-ready server
-# Bind to the port provided by Render's $PORT environment variable
-CMD ["/bin/sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:$PORT src.core_api.main:app"] 
+# We use gunicorn for a production-ready server
+CMD ["gunicorn", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "src.core_api.main:app"] 
