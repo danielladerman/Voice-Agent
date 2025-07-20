@@ -117,6 +117,11 @@ async def handle_vapi_webhook(request: Request, business_name: str):
         latest_turn = conversation[-1]
         call_id = message.get('call', {}).get('id')
 
+        # --- TEMPORARY DEBUGGING: Print the full assistant turn ---
+        if latest_turn.get('role') == 'assistant':
+            print(f"ASSISTANT TURN (RAW): {latest_turn}")
+        # ---------------------------------------------------------
+
         # Only log the turn if it's from the user or the 'final' part of the assistant's speech.
         log_this_turn = False
         role = latest_turn.get('role')
