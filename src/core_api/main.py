@@ -100,7 +100,18 @@ async def handle_vapi_webhook(request: Request, business_name: str):
             if message.get('status') == 'in-progress':
                 await db_utils.create_call_record(message)
         elif event_type == 'end-of-call-report':
+            # Finalize the main call record
             await db_utils.finalize_call_record(message)
+            # Log all assistant turns from the final transcript.
+            if message.get('conversation'):
+                call_id = message.get('call', {}).get('id')
+                for turn in message['conversation']:
+                    if turn.get('role') == 'assistant' and turn.get('content'):
+                        await db_utils.save_transcript_turn(
+                            call_id=call_id,
+                            speaker=turn['role'],
+                            content=turn.get('content')
+                        )
         elif event_type == 'function-call':
             if message.get('functionCall', {}).get('name') == 'book_appointment':
                 await db_utils.create_appointment(message['call']['id'], message['functionCall']['parameters'])
@@ -113,37 +124,24 @@ async def handle_vapi_webhook(request: Request, business_name: str):
         if not conversation:
             return JSONResponse(content={"status": "no conversation to process"})
 
-        # Log the latest turn to the database
         latest_turn = conversation[-1]
         call_id = message.get('call', {}).get('id')
 
-        # --- TEMPORARY DEBUGGING: Print the full assistant turn ---
-        if latest_turn.get('role') == 'assistant':
-            print(f"ASSISTANT TURN (RAW): {latest_turn}")
-        # ---------------------------------------------------------
-
-        # Only log the turn if it's from the user or the 'final' part of the assistant's speech.
-        log_this_turn = False
-        role = latest_turn.get('role')
-        if role == 'user':
-            log_this_turn = True
-        elif role == 'assistant' and latest_turn.get('ending') is True:
-            log_this_turn = True
-        
-        if call_id and log_this_turn and latest_turn.get('content'):
-            try:
-                await db_utils.save_transcript_turn(
-                    call_id=call_id,
-                    speaker=latest_turn['role'],
-                    content=latest_turn['content']
-                )
-            except Exception as e:
-                print(f"!!! TRANSCRIPT LOGGING ERROR: {e}")
-
-        # Check if the last message is from the user to trigger RAG
+        # Real-time processing for USER turns only.
         if latest_turn.get('role') == 'user':
-            transcribed_text = latest_turn.get('content')
+            # Log user turn to DB
+            if call_id and latest_turn.get('content'):
+                try:
+                    await db_utils.save_transcript_turn(
+                        call_id=call_id,
+                        speaker=latest_turn['role'],
+                        content=latest_turn['content']
+                    )
+                except Exception as e:
+                    print(f"!!! TRANSCRIPT LOGGING ERROR: {e}")
 
+            # Trigger RAG based on the user's turn
+            transcribed_text = latest_turn.get('content')
             if transcribed_text:
                 # Get the retriever for the specific business
                 retriever = get_retriever(business_name)
