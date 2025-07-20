@@ -100,6 +100,10 @@ async def handle_vapi_webhook(request: Request, business_name: str):
             if message.get('status') == 'in-progress':
                 await db_utils.create_call_record(message)
         elif event_type == 'end-of-call-report':
+            # --- TEMPORARY DEBUGGING: Print the full end-of-call report ---
+            print(f"END OF CALL REPORT (RAW): {message}")
+            # ----------------------------------------------------------------
+
             # Finalize the main call record
             await db_utils.finalize_call_record(message)
             # Log all assistant turns from the final transcript.
