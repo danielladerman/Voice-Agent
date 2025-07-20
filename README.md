@@ -87,6 +87,11 @@ Follow these steps to set up and run the project.
     DB_NAME="postgres"
     DB_USER="postgres"
     DB_PASS="<your-db-password>"
+
+    # (Optional) LangSmith for AI Observability
+    LANGCHAIN_TRACING_V2="true"
+    LANGCHAIN_API_KEY="<your-langsmith-api-key>"
+    LANGCHAIN_PROJECT="<your-langsmith-project-name>" # e.g., "AI Voice Agent"
     ```
 
 ### Step 2: Set Up the PostgreSQL Database (Supabase)
@@ -114,7 +119,20 @@ We use a PostgreSQL database to store call logs and transcripts. A free Supabase
         ALTER COLUMN speaker TYPE VARCHAR(20);
         ```
 
-### Step 3: Train the Agent (Data Ingestion)
+### (Optional) Step 3: Configure AI Observability with LangSmith
+
+While the Supabase database logs the final outcomes of calls, **LangSmith** is a powerful tool for developers to debug the AI's "thought process." It lets you trace the internal steps of your RAG chain (e.g., which documents were retrieved, what prompt was used) to understand *why* the agent gave a specific answer. This step is highly recommended for development.
+
+1.  **Create a LangSmith Account:**
+    *   Go to [langsmith.com](https://www.langchain.com/langsmith) and sign up.
+2.  **Create a Project:**
+    *   Once in the dashboard, create a new project (e.g., "AI Voice Agent").
+3.  **Generate an API Key:**
+    *   Go to the **Settings** > **API Keys** section and create a new key.
+4.  **Update `.env` file:**
+    *   Go back to your `.env` file and add the three `LANGCHAIN_...` variables, pasting in your new API key and the name of the project you created.
+
+### Step 4: Train the Agent (Data Ingestion)
 
 Before the agent can answer questions about a specific business, you must train it on that business's knowledge.
 
@@ -125,7 +143,7 @@ Before the agent can answer questions about a specific business, you must train 
     ```
     This script will scrape the website, create vector embeddings, and save them to a new collection in the `chroma_db` directory. The collection name will be a sanitized version of the business name (e.g., `examplebusinessname`).
 
-### Step 4: Run the Agent
+### Step 5: Run the Agent
 
 Now you are ready to make a call.
 
