@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
 # Load environment variables
 load_dotenv()
@@ -54,11 +55,25 @@ def get_retriever(business_name: str):
         print(f"Error initializing retriever for '{business_name}': {e}")
         return None
 
+# --- App Lifespan Events ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Handles startup and shutdown events for the application.
+    """
+    print("--- SERVER: Application startup ---")
+    await db_utils.init_db_pool()
+    yield
+    print("--- SERVER: Application shutdown ---")
+    await db_utils.close_db_pool()
+
+
 # --- FastAPI App ---
 app = FastAPI(
     title="AI Voice Agent Backend",
     description="This server provides real-time context to a Vapi voice agent.",
-    version="1.3.0"
+    version="1.3.0",
+    lifespan=lifespan
 )
 
 @app.get("/")
@@ -87,21 +102,34 @@ async def handle_vapi_webhook(request: Request, business_name: str):
         elif event_type == 'end-of-call-report':
             # This event contains the full transcript and final call details.
             await db_utils.finalize_call_record(message)
-            if message.get('transcript'):
-                await db_utils.save_transcript(message['call']['id'], message['transcript'])
         elif event_type == 'function-call':
             if message.get('functionCall', {}).get('name') == 'book_appointment':
                 await db_utils.create_appointment(message['call']['id'], message['functionCall']['parameters'])
     except Exception as e:
         print(f"!!! DATABASE LOGGING ERROR: {e}")
 
-    # --- Context Injection Section ---
-    # We trigger the RAG chain on a 'conversation-update' when the last turn is from the user.
+    # --- Context Injection & Transcript Logging Section ---
     if event_type == 'conversation-update':
         conversation = message.get('conversation', [])
-        # Ensure the conversation is not empty and the last message is from the user
-        if conversation and conversation[-1].get('role') == 'user':
-            transcribed_text = conversation[-1].get('content')
+        if not conversation:
+            return JSONResponse(content={"status": "no conversation to process"})
+
+        # Log the latest turn to the database
+        latest_turn = conversation[-1]
+        call_id = message.get('call', {}).get('id')
+        if call_id and latest_turn.get('role') and latest_turn.get('content'):
+            try:
+                await db_utils.save_transcript_turn(
+                    call_id=call_id,
+                    speaker=latest_turn['role'],
+                    content=latest_turn['content']
+                )
+            except Exception as e:
+                print(f"!!! TRANSCRIPT LOGGING ERROR: {e}")
+
+        # Check if the last message is from the user to trigger RAG
+        if latest_turn.get('role') == 'user':
+            transcribed_text = latest_turn.get('content')
 
             if transcribed_text:
                 # Get the retriever for the specific business

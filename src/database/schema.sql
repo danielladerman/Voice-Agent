@@ -9,7 +9,7 @@ CREATE TABLE calls (
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
     duration INTEGER, -- in seconds
-    status VARCHAR(10) -- e.g., completed, missed
+    status VARCHAR(50) -- e.g., completed, missed
 );
 
 -- 2. `transcripts` Table (Full Conversation Log)
@@ -17,10 +17,10 @@ CREATE TABLE calls (
 CREATE TABLE transcripts (
     transcript_id SERIAL PRIMARY KEY,
     call_id UUID REFERENCES calls(call_id),
-    speaker VARCHAR(10), -- 'user' or 'agent'
+    speaker VARCHAR(20), -- 'user' or 'agent' or 'conversation'
     content TEXT,
-    timestamp TIMESTAMPTZ,
-    sentiment_score FLOAT
+    timestamp TIMESTAMPTZ NULL,
+    sentiment_score FLOAT NULL
 );
 
 -- 3. `appointments` Table (Booking Data)
@@ -31,11 +31,11 @@ CREATE TABLE appointments (
     call_id UUID REFERENCES calls(call_id),
     customer_name VARCHAR(100),
     customer_phone VARCHAR(20),
-    customer_address TEXT,
+    customer_address TEXT NULL,
     issue_type VARCHAR(50), -- e.g., "AC not cooling"
     scheduled_time TIMESTAMPTZ,
-    calendar_event_id VARCHAR(100), -- e.g., Google Calendar ID
-    crm_contact_id VARCHAR(100) -- e.g., HubSpot ID
+    calendar_event_id VARCHAR(100) NULL, -- e.g., Google Calendar ID
+    crm_contact_id VARCHAR(100) NULL -- e.g., HubSpot ID
 );
 
 -- 4. `recordings` Table (Audio Storage Reference)

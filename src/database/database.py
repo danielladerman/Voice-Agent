@@ -17,6 +17,28 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 
 DATABASE_URL = f"postgres://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
+# --- Global Connection Pool ---
+db_pool = None
+
+async def init_db_pool():
+    """Initializes the database connection pool."""
+    global db_pool
+    if db_pool is None:
+        try:
+            print(f"--- DB: Initializing connection pool for host: '{DB_HOST}'")
+            db_pool = await asyncpg.create_pool(dsn=DATABASE_URL, min_size=1, max_size=10)
+            print("--- DB: Connection pool initialized successfully.")
+        except Exception as e:
+            print(f"!!! DATABASE POOL CREATION ERROR: {e}")
+            db_pool = None
+
+async def close_db_pool():
+    """Closes the database connection pool."""
+    global db_pool
+    if db_pool:
+        await db_pool.close()
+        print("--- DB: Connection pool closed.")
+
 # --- Helper Functions ---
 def to_datetime(ms: int) -> datetime:
     """Converts a UNIX timestamp in milliseconds to a timezone-aware datetime object."""
@@ -25,16 +47,15 @@ def to_datetime(ms: int) -> datetime:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
 
 async def get_db_connection():
-    """Establishes a connection to the database."""
-    try:
-        # --- TEMPORARY DEBUGGING ---
-        print(f"--- DB: Attempting to connect to host: '{DB_HOST}' on port: '{DB_PORT}'")
-        # --------------------------
-        conn = await asyncpg.connect(DATABASE_URL)
-        return conn
-    except Exception as e:
-        print(f"!!! DATABASE CONNECTION ERROR: {e}")
-        return None
+    """Acquires a connection from the global pool."""
+    global db_pool
+    if db_pool is None:
+        # This is a fallback, but in practice the pool should be initialized on app startup
+        await init_db_pool()
+    
+    if db_pool:
+        return await db_pool.acquire()
+    return None
 
 # --- Database Interaction Functions ---
 
@@ -42,6 +63,7 @@ async def create_call_record(event: dict):
     """Creates a new record for a call in the 'calls' table."""
     conn = await get_db_connection()
     if not conn:
+        print("!!! DB ERROR: Could not get a connection from the pool.")
         return
     
     try:
@@ -59,36 +81,40 @@ async def create_call_record(event: dict):
     except Exception as e:
         print(f"!!! DB ERROR (create_call_record): {e}")
     finally:
-        await conn.close()
+        if conn:
+            await db_pool.release(conn)
 
 
-async def save_transcript(call_id: str, full_transcript: str):
-    """Saves the full conversation transcript to the 'transcripts' table."""
+async def save_transcript_turn(call_id: str, speaker: str, content: str):
+    """Saves a single turn of the conversation to the 'transcripts' table."""
     conn = await get_db_connection()
     if not conn:
+        print("!!! DB ERROR: Could not get a connection from the pool.")
         return
 
     try:
-        # We store the entire conversation in a single record.
-        # The 'speaker' is set to 'conversation' to reflect this.
         await conn.execute("""
-            INSERT INTO transcripts (call_id, speaker, content)
-            VALUES ($1, 'conversation', $2)
+            INSERT INTO transcripts (call_id, speaker, content, timestamp)
+            VALUES ($1, $2, $3, $4)
         """,
             call_id,
-            full_transcript
+            speaker,
+            content,
+            datetime.now(timezone.utc)
         )
-        print(f"--- DB: Saved full transcript for {call_id}")
+        print(f"--- DB: Saved transcript turn for {call_id}")
     except Exception as e:
-        print(f"!!! DB ERROR (save_transcript): {e}")
+        print(f"!!! DB ERROR (save_transcript_turn): {e}")
     finally:
-        await conn.close()
+        if conn:
+            await db_pool.release(conn)
 
 
 async def create_appointment(call_id: str, parameters: dict):
     """Creates an appointment record from a function call."""
     conn = await get_db_connection()
     if not conn:
+        print("!!! DB ERROR: Could not get a connection from the pool.")
         return
         
     try:
@@ -106,13 +132,15 @@ async def create_appointment(call_id: str, parameters: dict):
     except Exception as e:
         print(f"!!! DB ERROR (create_appointment): {e}")
     finally:
-        await conn.close()
+        if conn:
+            await db_pool.release(conn)
 
 
 async def finalize_call_record(event: dict):
     """Updates a call record with the end time and final status."""
     conn = await get_db_connection()
     if not conn:
+        print("!!! DB ERROR: Could not get a connection from the pool.")
         return
     
     try:
@@ -131,7 +159,8 @@ async def finalize_call_record(event: dict):
     except Exception as e:
         print(f"!!! DB ERROR (finalize_call_record): {e}")
     finally:
-        await conn.close()
+        if conn:
+            await db_pool.release(conn)
 
 async def store_recording(call_id: str, audio_url: str):
     """Stores a reference to the call recording."""
