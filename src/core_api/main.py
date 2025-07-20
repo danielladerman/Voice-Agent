@@ -70,12 +70,14 @@ async def handle_vapi_webhook(request: Request, business_name: str):
     - For user turns, it retrieves context and provides it to Vapi's LLM.
     """
     payload = await request.json()
-    message = payload.get('message', {})
-    event_type = message.get('type')
     
     # --- TEMPORARY DEBUGGING ---
-    # print(f"RAW MESSAGE PAYLOAD: {message}") # Cleaned up
+    # Log the entire payload to inspect its structure
+    print(f"VAPI WEBHOOK PAYLOAD: {payload}")
     # --------------------------
+
+    message = payload.get('message', {})
+    event_type = message.get('type')
     
     # print(f"\n=== WEBHOOK CALLED FOR: {business_name} | EVENT: {event_type} ===") # Cleaned up
 
