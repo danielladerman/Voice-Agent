@@ -116,7 +116,16 @@ async def handle_vapi_webhook(request: Request, business_name: str):
         # Log the latest turn to the database
         latest_turn = conversation[-1]
         call_id = message.get('call', {}).get('id')
-        if call_id and latest_turn.get('role') and latest_turn.get('content'):
+
+        # Only log the turn if it's from the user or the 'final' part of the assistant's speech.
+        log_this_turn = False
+        role = latest_turn.get('role')
+        if role == 'user':
+            log_this_turn = True
+        elif role == 'assistant' and latest_turn.get('ending') is True:
+            log_this_turn = True
+        
+        if call_id and log_this_turn and latest_turn.get('content'):
             try:
                 await db_utils.save_transcript_turn(
                     call_id=call_id,
