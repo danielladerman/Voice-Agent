@@ -26,7 +26,12 @@ async def init_db_pool():
     if db_pool is None:
         try:
             print(f"--- DB: Initializing connection pool for host: '{DB_HOST}'")
-            db_pool = await asyncpg.create_pool(dsn=DATABASE_URL, min_size=1, max_size=10)
+            db_pool = await asyncpg.create_pool(
+                dsn=DATABASE_URL,
+                min_size=1,
+                max_size=10,
+                statement_cache_size=0  # Required for Supabase Transaction Pooler
+            )
             print("--- DB: Connection pool initialized successfully.")
         except Exception as e:
             print(f"!!! DATABASE POOL CREATION ERROR: {e}")
