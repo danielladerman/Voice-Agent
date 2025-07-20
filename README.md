@@ -28,13 +28,19 @@ graph TD
 
     subgraph "Cloud Services"
         C[Render Web Service] -- Deploys & Runs --> D["Containerized FastAPI App"];
-        D -- Queries/Upserts --> E["Pinecone <br/>(Managed Vector Database)"];
-        D -- Reads/Writes --> G["Supabase <br/>(Managed PostgreSQL DB)"];
+        D -- "Queries for Context" --> E["Pinecone <br/>(Managed Vector Database)"];
+        D -- "Writes Call Logs" --> G["Supabase <br/>(Managed PostgreSQL DB)"];
     end
 
-    B -- Webhook to Render URL --> C;
-    B -- Receives System Prompt --> B;
-    B -- Generates Final Answer --> A;
+    subgraph "AI Observability (Optional)"
+        H[LangSmith]
+    end
+
+    B -- "Webhook (User Transcript)" --> C;
+    D -- "**Returns Dynamic System Prompt** <br/> (with Pinecone context)" --> B;
+    B -- "Generates Final Answer" --> A;
+    
+    D -.-> H;
 ```
 
 ### How It Works
