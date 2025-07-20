@@ -2,6 +2,9 @@
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
+# Set an environment variable to prevent Python from buffering stdout/stderr
+ENV PYTHONUNBUFFERED=1
+
 # Set the working directory in the container
 WORKDIR /app
 
