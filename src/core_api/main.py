@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
@@ -21,22 +21,29 @@ from src.database import database as db_utils
 # --- Global Retriever Cache ---
 retriever_cache = {}
 LLM_MODEL = "gpt-4o"
-PERSIST_DIRECTORY = "chroma_db"
+INDEX_NAME = "voice-agent-data"
+
 
 def get_retriever(business_name: str):
     """
-    Initializes and caches a retriever for a specific business's ChromaDB collection.
+    Initializes and caches a retriever for a specific business's namespace in Pinecone.
     """
     if business_name in retriever_cache:
         return retriever_cache[business_name]
 
     try:
-        collection_name = "".join(e for e in business_name if e.isalnum() or e in ['_', '-']).lower()
-        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        vector_store = Chroma(
-            collection_name=collection_name,
-            embedding_function=embeddings,
-            persist_directory=PERSIST_DIRECTORY,
+        # Sanitize the business_name to match the namespace format
+        namespace = "".join(e for e in business_name if e.isalnum() or e in ['_', '-']).lower()
+        
+        embeddings = OpenAIEmbeddings(
+            model="text-embedding-3-small",
+            dimensions=512  # Specify the dimension to match Pinecone index
+        )
+        
+        vector_store = PineconeVectorStore(
+            index_name=INDEX_NAME,
+            embedding=embeddings,
+            namespace=namespace
         )
         
         retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={'k': 5})

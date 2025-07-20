@@ -4,7 +4,7 @@ import argparse
 import time
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_pinecone import PineconeVectorStore
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Configuration ---
-PERSIST_DIRECTORY = "chroma_db"
+INDEX_NAME = "voice-agent-data"
 
 def scrape_website(url: str) -> str:
     """
@@ -47,9 +47,10 @@ def scrape_website(url: str) -> str:
             driver.quit()
         return ""
 
-def ingest_data(url: str, collection_name: str):
+def ingest_data(url: str, business_name: str):
     """
-    Scrapes a URL, processes the text, and ingests it into a ChromaDB collection.
+    Scrapes a URL, processes the text, and ingests it into a Pinecone index.
+    The `business_name` is used as a namespace within the index.
     """
     print(f"--- Starting ingestion for URL: {url} ---")
     
@@ -71,29 +72,32 @@ def ingest_data(url: str, collection_name: str):
     documents = text_splitter.create_documents([scraped_text])
     print(f"   ...Split into {len(documents)} documents.")
 
-    # 3. Get embeddings and initialize ChromaDB
+    # 3. Get embeddings and initialize Pinecone
     print("Step 3: Initializing embeddings and vector store...")
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    embeddings = OpenAIEmbeddings(
+        model="text-embedding-3-small",
+        dimensions=512  # Specify the dimension to match Pinecone index
+    )
     
-    # Sanitize the collection name
-    sanitized_collection_name = "".join(e for e in collection_name if e.isalnum() or e in ['_', '-']).lower()
+    # Sanitize the business_name to be used as a namespace
+    namespace = "".join(e for e in business_name if e.isalnum() or e in ['_', '-']).lower()
     
-    vector_store = Chroma.from_documents(
+    print(f"Step 4: Upserting documents to Pinecone index '{INDEX_NAME}' with namespace '{namespace}'...")
+    vector_store = PineconeVectorStore.from_documents(
         documents=documents,
         embedding=embeddings,
-        collection_name=sanitized_collection_name,
-        persist_directory=PERSIST_DIRECTORY,
+        index_name=INDEX_NAME,
+        namespace=namespace
     )
     
     print("\n--- Ingestion Complete ---")
-    print(f"Successfully ingested {len(documents)} documents into the '{sanitized_collection_name}' collection.")
-    print(f"Vector store persisted to directory: '{PERSIST_DIRECTORY}'")
+    print(f"Successfully ingested {len(documents)} documents into the '{INDEX_NAME}' index under the '{namespace}' namespace.")
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Scrape a website and ingest its content into ChromaDB.")
+    parser = argparse.ArgumentParser(description="Scrape a website and ingest its content into a Pinecone index.")
     parser.add_argument("url", type=str, help="The URL of the website to scrape.")
-    parser.add_argument("collection_name", type=str, help="The name for the ChromaDB collection.")
+    parser.add_argument("business_name", type=str, help="The business name, used as a namespace in Pinecone.")
     
     args = parser.parse_args()
     
-    ingest_data(args.url, args.collection_name)
+    ingest_data(args.url, args.business_name)

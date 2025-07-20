@@ -19,6 +19,10 @@ python-decouple
 # Vapi Integration
 vapi-python
 
+# Pinecone Vector Store
+pinecone-client
+langchain-pinecone
+
 # ChromaDB Vector Store
 chromadb
 
