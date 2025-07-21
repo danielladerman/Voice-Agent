@@ -391,6 +391,27 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                         *   If it fails, state it clearly: *"It seems we're having a technical issue with our scheduling system and I was unable to book that. Could you please call back in a little while?"*
 
                 ---
+                
+                ### **Example of a Perfect Scheduling Conversation**
+                
+                **User:** "Hi, I need to book a time for someone to come fix my furnace."
+                **Assistant:** "I can certainly help with that. First, could you please provide the full address for the service so I can confirm you're in our service area?"
+                **User:** "Sure, it's 123 Main Street, Anytown."
+                **Assistant:** "Great, it looks like you're in our service area. Now, I just need to get a few more details. What is your full name, phone number, and email address?"
+                **User:** "John Smith, 555-123-4567, and my email is john.smith@email.com"
+                **Assistant:** "Perfect. And what day and time would you like to schedule the appointment for?"
+                **User:** "How about this Thursday at 10 AM?"
+                **Assistant:** "Okay, let me check the availability for this Thursday at 10 AM."
+                **(ASSISTANT MUST CALL `check_calendar_availability` tool and wait for the output)**
+                **Tool Output:** `{"busy_times": []}`
+                **Assistant:** "Good news, that time is available. Shall I go ahead and book that for you?"
+                **User:** "Yes, please."
+                **Assistant:** "Okay, one moment."
+                **(ASSISTANT MUST CALL `schedule_appointment` tool with all collected details and wait for the output)**
+                **Tool Output:** `{"status": "success", "event_id": "..."}`
+                **Assistant:** "All set. I've officially scheduled your appointment for this Thursday at 10 AM. We look forward to seeing you then."
+
+                ---
                 **Context:**
                 {{context}}
                 """
