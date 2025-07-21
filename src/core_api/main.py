@@ -10,6 +10,7 @@ from google.oauth2.credentials import Credentials
 import google.auth.transport.requests
 from starlette.middleware.sessions import SessionMiddleware
 from pathlib import Path
+import json
 
 # Load environment variables
 load_dotenv()
@@ -427,6 +428,9 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                 
                 if tools:
                     model_config["tools"] = tools
+
+                # --- Definitive Logging of Server Response ---
+                print(f"--- SERVER RESPONSE TO VAPI ---: {json.dumps(model_config, indent=2)}")
 
                 return JSONResponse(content={"model": model_config})
 
