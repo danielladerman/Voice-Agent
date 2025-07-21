@@ -418,12 +418,21 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                 """
                 
                 # We are overriding the model configuration for this turn
+                
+                # Filter out any old system prompts from the conversation history
+                filtered_conversation = [
+                    turn for turn in conversation if turn.get('role') != 'system'
+                ]
+
+                # Construct the definitive messages array with our prompt at the start
+                definitive_messages = [
+                    {"role": "system", "content": system_prompt_template}
+                ] + filtered_conversation
+
                 model_config = {
                     "provider": "openai",
                     "model": "gpt-4o",
-                    "messages": [
-                        {"role": "system", "content": system_prompt_template}
-                    ] + conversation
+                    "messages": definitive_messages
                 }
                 
                 if tools:
