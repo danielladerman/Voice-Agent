@@ -404,17 +404,17 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                 **User:** "How about this Thursday at 10 AM?"
                 **Assistant:** "Okay, let me check the availability for this Thursday at 10 AM."
                 **(ASSISTANT MUST CALL `check_calendar_availability` tool and wait for the output)**
-                **Tool Output:** `{"busy_times": []}`
+                **Tool Output:** `{{ "busy_times": [] }}`
                 **Assistant:** "Good news, that time is available. Shall I go ahead and book that for you?"
                 **User:** "Yes, please."
                 **Assistant:** "Okay, one moment."
                 **(ASSISTANT MUST CALL `schedule_appointment` tool with all collected details and wait for the output)**
-                **Tool Output:** `{"status": "success", "event_id": "..."}`
+                **Tool Output:** `{{ "status": "success", "event_id": "..." }}`
                 **Assistant:** "All set. I've officially scheduled your appointment for this Thursday at 10 AM. We look forward to seeing you then."
 
                 ---
                 **Context:**
-                {{context}}
+                {context}
                 """
                 
                 # We are overriding the model configuration for this turn
