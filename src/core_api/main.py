@@ -73,6 +73,24 @@ def get_retriever(business_name: str):
 # --- Function Schemas for the Agent ---
 # This defines the structure of the functions the AI agent can call.
 
+get_context_tool = {
+    "type": "function",
+    "function": {
+        "name": "get_context",
+        "description": "Fetches real-time, context-aware information based on the user's query to answer questions. Also returns the status of the Google Calendar integration.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The user's question or statement to be used for the information retrieval."
+                }
+            },
+            "required": ["query"]
+        }
+    }
+}
+
 schedule_appointment_tool = {
     "type": "function",
     "function": {
@@ -219,6 +237,79 @@ async def oauth2callback(request: Request):
     return JSONResponse(content={"status": "success", "message": f"Successfully authenticated Google Calendar for {business_name}."})
 
 
+# --- VAPI Tool Endpoint ---
+class UserQuery(BaseModel):
+    query: str
+
+@app.post("/{business_name}/get-context")
+async def get_context_for_vapi(business_name: str, user_query: UserQuery):
+    """
+    This endpoint is called by the Vapi assistant as a tool.
+    It performs a RAG lookup and returns the context.
+    """
+    try:
+        retriever = get_retriever(business_name)
+        if not retriever:
+            return JSONResponse(status_code=500, content={"error": f"Retriever not found for {business_name}"})
+
+        # Get context from Pinecone
+        docs = retriever.invoke(user_query.query)
+        context = "\n\n".join([doc.page_content for doc in docs])
+
+        # Check for Google Calendar auth to provide calendar status
+        google_auth_creds = await db_utils.get_google_auth(business_name)
+        calendar_status = "enabled" if google_auth_creds else "disabled"
+
+        # Combine the context and calendar status into a single result
+        combined_result = f"CONTEXT:\n{context}\n\nCALENDAR_STATUS:\n{calendar_status}"
+
+        # The key in the response must be "result"
+        return {"result": combined_result}
+
+    except Exception as e:
+        print(f"!!! TOOL ERROR in get_context_for_vapi: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# --- Retell AI Tool Endpoint ---
+class RetellUserQuery(BaseModel):
+    query: str
+
+@app.post("/{business_name}/retell-get-context")
+async def get_context_for_retell(business_name: str, request: Request):
+    """
+    This endpoint is called by the Retell assistant as a tool.
+    It performs a RAG lookup and returns the context in a format
+    that Retell expects.
+    """
+    try:
+        # Retell sends the tool parameters in the request body as a JSON object.
+        # The 'query' will be inside the 'parameters' key.
+        body = await request.json()
+        user_query_params = body.get("parameters", {})
+        user_query = user_query_params.get("query")
+
+        if not user_query:
+            return JSONResponse(status_code=400, content={"error": "Missing 'query' in parameters"})
+
+        retriever = get_retriever(business_name)
+        if not retriever:
+            return JSONResponse(status_code=500, content={"error": f"Retriever not found for {business_name}"})
+
+        # Get context from Pinecone
+        docs = retriever.invoke(user_query)
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # Retell expects the output of the tool in a specific JSON format.
+        # We will return the context as a JSON object with a key like "context".
+        # This can be customized based on what the Retell prompt expects.
+        return {"context": context}
+
+    except Exception as e:
+        print(f"!!! TOOL ERROR in get_context_for_retell: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 # --- VAPI Unified Webhook ---
 @app.post("/{business_name}/vapi-webhook")
 async def handle_vapi_webhook(request: Request, business_name: str):
@@ -232,232 +323,158 @@ async def handle_vapi_webhook(request: Request, business_name: str):
     event_type = message.get('type')
 
     # (Database logging remains the same)
-    try:
-        if event_type == 'status-update':
-            if message.get('status') == 'in-progress':
-                await db_utils.create_call_record(message)
-        elif event_type == 'end-of-call-report':
-            # --- TEMPORARY DEBUGGING: Print the full end-of-call report ---
-            print(f"END OF CALL REPORT (RAW): {message}")
-            # ----------------------------------------------------------------
+    if event_type in ['status-update', 'end-of-call-report', 'function-call']:
+        try:
+            if event_type == 'status-update':
+                if message.get('status') == 'in-progress':
+                    await db_utils.create_call_record(message)
+            elif event_type == 'end-of-call-report':
+                await db_utils.finalize_call_record(message)
+                if message.get('conversation'):
+                    call_id = message.get('call', {}).get('id')
+                    for turn in message['conversation']:
+                        if turn.get('role') == 'assistant' and turn.get('content'):
+                            await db_utils.save_transcript_turn(
+                                call_id=call_id,
+                                speaker=turn['role'],
+                                content=turn.get('content')
+                            )
+            elif event_type == 'function-call':
+                function_call = message.get('functionCall', {})
+                tool_call_id = function_call.get('id')
 
-            # Finalize the main call record
-            await db_utils.finalize_call_record(message)
-            # Log all assistant turns from the final transcript.
-            if message.get('conversation'):
-                call_id = message.get('call', {}).get('id')
-                for turn in message['conversation']:
-                    if turn.get('role') == 'assistant' and turn.get('content'):
-                        await db_utils.save_transcript_turn(
-                            call_id=call_id,
-                            speaker=turn['role'],
-                            content=turn.get('content')
-                        )
-        elif event_type == 'function-call':
-            if message.get('functionCall', {}).get('name') == 'book_appointment':
-                await db_utils.create_appointment(message['call']['id'], message['functionCall']['parameters'])
-            elif message.get('functionCall', {}).get('name') == 'schedule_appointment':
-                # Call the Google Calendar tool
-                params = message['functionCall']['parameters']
-                result = await calendar_tool.create_calendar_event(
-                    business_name=business_name,
-                    summary=params.get('summary'),
-                    start_time=params.get('start_time'),
-                    end_time=params.get('end_time'),
-                    description=params.get('description', '')
-                )
+                if function_call.get('name') == 'schedule_appointment':
+                    params = function_call.get('parameters', {})
+                    result = await calendar_tool.create_calendar_event(
+                        business_name=business_name,
+                        summary=params.get('summary'),
+                        start_time=params.get('start_time'),
+                        end_time=params.get('end_time'),
+                        description=params.get('description', '')
+                    )
+                    # Vapi expects a specific format for tool call responses.
+                    return JSONResponse(content={
+                        "tool_outputs": [{
+                            "tool_call_id": tool_call_id,
+                            "output": result
+                        }]
+                    })
                 
-                # Here you would typically send the result back to Vapi's LLM
-                # For now, we'll just log it.
-                print(f"--- CALENDAR: Event creation result: {result}")
-            
-            elif message.get('functionCall', {}).get('name') == 'check_calendar_availability':
-                # Call the Google Calendar availability tool
-                params = message['functionCall']['parameters']
-                result = await calendar_tool.get_available_slots(
-                    business_name=business_name,
-                    start_time=params.get('start_time'),
-                    end_time=params.get('end_time')
-                )
-                
-                # Send the result of the function call back to the LLM
-                return JSONResponse(content={
-                    "tool_outputs": [{
-                        "tool_call_id": message['functionCall']['id'],
-                        "output": result
-                    }]
-                })
+                elif function_call.get('name') == 'check_calendar_availability':
+                    params = function_call.get('parameters', {})
+                    result = await calendar_tool.get_available_slots(
+                        business_name=business_name,
+                        start_time=params.get('start_time'),
+                        end_time=params.get('end_time')
+                    )
+                    # Vapi expects a specific format for tool call responses.
+                    return JSONResponse(content={
+                        "tool_outputs": [{
+                            "tool_call_id": tool_call_id,
+                            "output": result
+                        }]
+                    })
+
+        except Exception as e:
+            print(f"!!! DATABASE/TOOL ERROR: {e}")
+        
+        # We don't need to send a model response for these event types
+        return JSONResponse(content={"status": "success"})
 
 
-    except Exception as e:
-        print(f"!!! DATABASE LOGGING ERROR: {e}")
-
-    # --- Context Injection & Transcript Logging Section ---
+    # --- For 'conversation-update', provide the static model config ---
     if event_type == 'conversation-update':
+        # Log the latest turn to the database
         conversation = message.get('conversation', [])
-        if not conversation:
-            return JSONResponse(content={"status": "no conversation to process"})
-
-        latest_turn = conversation[-1]
-        call_id = message.get('call', {}).get('id')
-
-        # Real-time processing for USER turns only.
-        if latest_turn.get('role') == 'user':
-            # Log user turn to DB
-            if call_id and latest_turn.get('content'):
-                try:
+        if conversation:
+            latest_turn = conversation[-1]
+            call_id = message.get('call', {}).get('id')
+            if call_id and latest_turn.get('content') and latest_turn.get('role') in ['user', 'assistant']:
+                 try:
                     await db_utils.save_transcript_turn(
                         call_id=call_id,
                         speaker=latest_turn['role'],
                         content=latest_turn['content']
                     )
-                except Exception as e:
+                 except Exception as e:
                     print(f"!!! TRANSCRIPT LOGGING ERROR: {e}")
 
-            # Trigger RAG based on the user's turn
-            transcribed_text = latest_turn.get('content')
-            if transcribed_text:
-                # Get the retriever for the specific business
-                retriever = get_retriever(business_name)
-                
-                # Check if the business has Google Calendar auth
-                google_auth_creds = await db_utils.get_google_auth(business_name)
-                
-                tools = []
-                if google_auth_creds:
-                    tools.append(schedule_appointment_tool)
-                    tools.append(check_calendar_availability_tool)
-                
-                docs = retriever.invoke(transcribed_text)
-                
-                # Format the documents into a string for the prompt
-                context = "\n\n".join([doc.page_content for doc in docs])
+        # This is the static prompt that will be used for every turn.
+        static_system_prompt = f"""
+        You are "Riley," a world-class AI receptionist and scheduling assistant for **{business_name}**.
 
-                # Build the new system prompt with the retrieved context
-                system_prompt_template = f"""
-                You are "Riley," a world-class AI receptionist and scheduling assistant for **{{business_name}}**.
+        Your primary objectives are to provide exceptional, professional customer service by answering questions and to efficiently schedule service appointments using a strict, step-by-step process.
 
-                Your primary objectives are to provide exceptional, professional customer service by answering questions based *only* on the provided context, and to efficiently schedule service appointments using a strict, step-by-step process.
+        Your tone is professional, warm, and highly competent. You are helpful and proactive, but also concise and to the point. Emulate the best human receptionist you can imagine.
 
-                Your tone is professional, warm, and highly competent. You are helpful and proactive, but also concise and to the point. Emulate the best human receptionist you can imagine.
+        ---
 
-                ---
+        ### **Core Directives & Rules of Engagement**
 
-                ### **Core Directives & Rules of Engagement**
+        1.  **Identity & Persona:**
+            *   Always speak on behalf of the business. Use "we," "our," and "us."
+            *   Never reveal you are an AI unless directly asked. If a user asks "Are you a robot?" or similar, respond calmly with: "I'm a proprietary AI assistant developed to help {business_name}." Do not mention OpenAI, Google, or any other company.
 
-                1.  **Identity & Persona:**
-                    *   Always speak on behalf of the business. Use "we," "our," and "us."
-                    *   Never reveal you are an AI unless directly asked. If a user asks "Are you a robot?" or similar, respond calmly with: "I'm a proprietary AI assistant developed to help {{business_name}}." Do not mention OpenAI, Google, or any other company.
+        2.  **Knowledge & Information:**
+            *   Your knowledge is **strictly and exclusively** limited to the information returned by the `get_context` tool.
+            *   For every user question or statement, you **MUST FIRST** call the `get_context` tool with the user's query.
+            *   The tool will return a `CONTEXT:` section and a `CALENDAR_STATUS:` section.
+            *   If a user asks a question that cannot be answered from the provided `CONTEXT`, you **MUST** respond with: "That's a great question, but I don't have access to that specific information right now." Do not apologize or try to find the answer elsewhere.
 
-                2.  **Knowledge & Information:**
-                    *   Your knowledge is **strictly and exclusively** limited to the information found in the **"Context"** section below.
-                    *   If a user asks a question that cannot be answered from the Context, you **MUST** respond with: "That's a great question, but I don't have access to that specific information right now." Do not apologize or try to find the answer elsewhere.
+        3.  **Tool Use Protocol (CRITICAL):**
+            *   You are forbidden from discussing the results or outcome of a tool before you have actually called the tool and received its output.
+            *   Do not combine steps. For example, do not say "I will check the calendar and book it for you." You must check, report the result, and then book.
 
-                3.  **Tool Use Protocol (CRITICAL):**
-                    *   You are forbidden from discussing the results or outcome of a tool before you have actually called the tool and received its output.
-                    *   Do not combine steps. For example, do not say "I will check the calendar and book it for you." You must check, report the result, and then book.
+        ---
 
-                ---
+        ### **Mandatory Scheduling Workflow**
 
-                ### **Mandatory Scheduling Workflow**
+        When a user expresses intent to book or schedule, you **MUST** first call the `get_context` tool with their request to check the `CALENDAR_STATUS`.
 
-                When a user expresses intent to book or schedule, you **MUST** follow this sequence precisely. Do not combine steps. Do not confirm bookings you have not made.
+        *   If `CALENDAR_STATUS` is **'disabled'**, you **MUST** inform the user that the online scheduling system is unavailable. Say: *"Our online scheduling system is currently unavailable. I can still answer questions, but I can't book appointments at this time."* Do not attempt to proceed with scheduling.
+        *   If `CALENDAR_STATUS` is **'enabled'**, you **MUST** follow this sequence precisely:
 
-                *   **Step 1: Get Service Address & Check Jurisdiction (Crucial First Step)**
-                    *   The very first detail you must ask for is the **complete physical address** for the service call. Say something like: *"I can certainly help with that. First, could you please provide the full address for the service so I can confirm you're in our service area?"*
-                    *   Immediately check the **Context** section to find our service area.
-                    *   If the user's address is clearly outside the service area described in the Context, you **MUST** politely stop the process. Say: *"Thank you for the information. It appears that your address is outside of our current service area, so unfortunately, we won't be able to schedule a visit at this time."*
-                    *   If the address is within the service area, proceed to the next step by saying: *"Great, it looks like you're in our service area. Now, I just need to get a few more details."*
+        *   **Step 1: Get Service Address & Check Jurisdiction**
+            *   The very first detail you must ask for is the **complete physical address** for the service call.
+            *   Immediately check the `CONTEXT` from your tool call to find our service area.
+            *   If the user's address is outside the service area, politely stop the process.
+            *   If the address is within the service area, proceed to the next step.
 
-                *   **Step 2: Comprehensive Information Gathering**
-                    *   Now that the location is confirmed, proceed to gather the remaining details in a conversational manner:
-                        1.  **Full Name**
-                        2.  **Phone Number**
-                        3.  **The specific service they require** (e.g., AC Repair, new installation, regular maintenance).
-                        4.  **A valid Email Address** for the confirmation.
+        *   **Step 2: Comprehensive Information Gathering**
+            *   Gather the user's **Full Name**, **Phone Number**, the **specific service they require**, and a **valid Email Address**.
 
-                *   **Step 3: Check Availability**
-                    *   Now ask for their desired date and time for the appointment.
-                    *   Your next action **MUST** be to use the `check_calendar_availability` tool.
-                    *   Verbally state what you are doing: *"Perfect, thank you. Let me check the availability for [Date] at [Time]."*
+        *   **Step 3: Check Availability**
+            *   Ask for their desired date and time.
+            *   Your next action **MUST** be to use the `check_calendar_availability` tool.
 
-                *   **Step 4: Communicate Results & Ask for Confirmation**
-                    *   Based on the tool's output:
-                        *   If the time is busy, inform the user clearly: *"It looks like we're already booked at that time. Is there another day or time that might work for you?"*
-                        *   If the time is free, state it and **ask for explicit permission to book**: *"Good news, that time is available. Shall I go ahead and book that for you?"*
+        *   **Step 4: Communicate Results & Ask for Confirmation**
+            *   Based on the tool's output, inform the user if the time is available or not. If it is, **ask for explicit permission to book**.
 
-                *   **Step 5: Execute the Booking**
-                    *   **Only after** the user confirms, you **MUST** use the `schedule_appointment` tool.
-                    *   **Crucially, include all the collected details** (user's name, address, phone, email, and service request) in the `description` parameter of the tool.
+        *   **Step 5: Execute the Booking**
+            *   **Only after** user confirmation, use the `schedule_appointment` tool. Include all collected details in the `description`.
 
-                *   **Step 6: Provide Final Confirmation**
-                    *   Based on the `schedule_appointment` tool's output:
-                        *   If it succeeds, give the final confirmation: *"All set. I've officially scheduled your appointment and you should receive an email confirmation shortly. We look forward to seeing you then."*
-                        *   If it fails, state it clearly: *"It seems we're having a technical issue with our scheduling system and I was unable to book that. Could you please call back in a little while?"*
+        *   **Step 6: Provide Final Confirmation**
+            *   Confirm the appointment was successful based on the tool's output.
+        """
 
-                ---
-                
-                ### **Example of a Perfect Scheduling Conversation**
-                
-                **User:** "Hi, I need to book a time for someone to come fix my furnace."
-                **Assistant:** "I can certainly help with that. First, could you please provide the full address for the service so I can confirm you're in our service area?"
-                **User:** "Sure, it's 123 Main Street, Anytown."
-                **Assistant:** "Great, it looks like you're in our service area. Now, I just need to get a few more details. What is your full name, phone number, and email address?"
-                **User:** "John Smith, 555-123-4567, and my email is john.smith@email.com"
-                **Assistant:** "Perfect. And what day and time would you like to schedule the appointment for?"
-                **User:** "How about this Thursday at 10 AM?"
-                **Assistant:** "Okay, let me check the availability for this Thursday at 10 AM."
-                **(ASSISTANT MUST CALL `check_calendar_availability` tool and wait for the output)**
-                **Tool Output:** `{{ "busy_times": [] }}`
-                **Assistant:** "Good news, that time is available. Shall I go ahead and book that for you?"
-                **User:** "Yes, please."
-                **Assistant:** "Okay, one moment."
-                **(ASSISTANT MUST CALL `schedule_appointment` tool with all collected details and wait for the output)**
-                **Tool Output:** `{{ "status": "success", "event_id": "..." }}`
-                **Assistant:** "All set. I've officially scheduled your appointment for this Thursday at 10 AM. We look forward to seeing you then."
+        # Define the model configuration with the static prompt and tools
+        model_config = {
+            "provider": "openai",
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": static_system_prompt}
+            ],
+            "tools": [
+                get_context_tool,
+                schedule_appointment_tool,
+                check_calendar_availability_tool
+            ]
+        }
+        
+        # Vapi expects the 'model' key in the JSON response
+        return JSONResponse(content={"model": model_config})
 
-                ---
-
-                ### **Second Example of a Perfect Scheduling Conversation**
-
-                **User:** "Hi, can I book a time for an AC repair?"
-                **Assistant:** "I can certainly help with that. First, could you please provide the full address for the service so I can confirm you're in our service area?"
-                **User:** "It's 456 Oak Avenue, Springfield."
-                **Assistant:** "Thank you for that. It appears that your address is outside of our current service area, so unfortunately, we won't be able to schedule a visit at this time."
-                **(Conversation Ends)**
-
-                ---
-                **Context:**
-                {context}
-                """
-                
-                # We are overriding the model configuration for this turn
-                
-                # Filter out any old system prompts from the conversation history
-                filtered_conversation = [
-                    turn for turn in conversation if turn.get('role') != 'system'
-                ]
-
-                # Construct the definitive messages array with our prompt at the start
-                definitive_messages = [
-                    {"role": "system", "content": system_prompt_template}
-                ] + filtered_conversation
-
-                model_config = {
-                    "provider": "openai",
-                    "model": "gpt-4o",
-                    "messages": definitive_messages
-                }
-                
-                if tools:
-                    model_config["tools"] = tools
-
-                # --- Definitive Logging of Server Response ---
-                print(f"--- SERVER RESPONSE TO VAPI ---: {json.dumps(model_config, indent=2)}")
-
-                return JSONResponse(content={"model": model_config})
-
-    return JSONResponse(content={"status": "success"})
+    return JSONResponse(content={"status": "unhandled_event"})
 
 
 # --- Main Entry Point ---
