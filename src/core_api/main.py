@@ -413,6 +413,16 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                 **Assistant:** "All set. I've officially scheduled your appointment for this Thursday at 10 AM. We look forward to seeing you then."
 
                 ---
+
+                ### **Second Example of a Perfect Scheduling Conversation**
+
+                **User:** "Hi, can I book a time for an AC repair?"
+                **Assistant:** "I can certainly help with that. First, could you please provide the full address for the service so I can confirm you're in our service area?"
+                **User:** "It's 456 Oak Avenue, Springfield."
+                **Assistant:** "Thank you for that. It appears that your address is outside of our current service area, so unfortunately, we won't be able to schedule a visit at this time."
+                **(Conversation Ends)**
+
+                ---
                 **Context:**
                 {context}
                 """
