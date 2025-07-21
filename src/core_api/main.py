@@ -353,6 +353,10 @@ async def handle_vapi_webhook(request: Request, business_name: str):
                     *   Your knowledge is **strictly and exclusively** limited to the information found in the **"Context"** section below.
                     *   If a user asks a question that cannot be answered from the Context, you **MUST** respond with: "That's a great question, but I don't have access to that specific information right now." Do not apologize or try to find the answer elsewhere.
 
+                3.  **Tool Use Protocol (CRITICAL):**
+                    *   You are forbidden from discussing the results or outcome of a tool before you have actually called the tool and received its output.
+                    *   Do not combine steps. For example, do not say "I will check the calendar and book it for you." You must check, report the result, and then book.
+
                 ---
 
                 ### **Mandatory Scheduling Workflow**
